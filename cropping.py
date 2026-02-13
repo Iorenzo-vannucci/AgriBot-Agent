@@ -1,0 +1,175 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
+from scipy.signal import find_peaks, peak_widths
+from scipy.ndimage import gaussian_filter1d
+import sys
+
+DIM = 1000  # dimensione warp
+def crop(filename, n_rows, n_cols):
+    # Carica e trova la griglia
+    img = cv2.imread(filename)
+    if img is None: 
+        print("Img not found")
+        sys.exit()
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) #conversione da scala di colori a scala di grigi 
+    _, negative_img = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU) #otsu calcola automaticamente la soglia di colori ottimale
+
+    find_contours , _= cv2.findContours(negative_img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE) #retr external considera solo il perimetro esterno escludendo la parte interna, chainApprox che comprime segmenti lineari, prende solo gli estremi di una linea 
+    find_biggest_contours  = sorted(find_contours, key=cv2.contourArea, reverse=True) #la funzione sorted ordina in ordine decrescente i valori trovati (reverse = True)
+
+    if not find_biggest_contours: 
+        print("Grid not found")
+        sys.exit()
+
+    def order_points(corners):
+        TL_BR = corners.sum(1) #Top Left e Bottom Right; somma x e y per ogni angolo
+        TR_BL = (corners[:,0] - corners[:,1]) #è come se facessi x - y iterando i signoli valori
+        src = np.float32([corners[np.argmin(TL_BR)], corners[np.argmax(TR_BL)], corners[np.argmax(TL_BR)], corners[np.argmin(TR_BL)]])
+        return src
+
+    corners = None
+
+    c = find_biggest_contours[0] #prendo contorno più grande
+    corners = cv2.boxPoints(cv2.minAreaRect(c)).astype(np.float32) #BoxPoints serve a raddrizzare la griglia prima di tagliare le celle, restituisce 4 angoli partendo dal centro la dimensione e l'angolo restituiti da minAreaReact; minAreaReact usa un rettangolo ruotato, per aderire perfettamente al bordo dell'input passato
+    src = order_points(corners)
+    dst = np.float32([[0,0],[DIM-1,0],[DIM-1,DIM-1],[0,DIM-1]])
+    warped = cv2.warpPerspective(gray, cv2.getPerspectiveTransform(src, dst), (DIM, DIM))
+    warped = cv2.morphologyEx(
+    cv2.threshold(warped, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1],
+        cv2.MORPH_OPEN, np.ones((3,3), np.uint8))
+
+
+    # 2. Trova intervalli celle 
+    def get_intervals(proj, n):
+
+        p = gaussian_filter1d(proj, sigma=5) #in pratica si fa una lista filtrando con una normale i vari pixel, proj è la somma dei pixel; sigma è la precisione con cui vado a smussare le parti meno precise
+        #cerca i picchi (le parti più scure che siano almeno al 30% alte quanto il picco massimo (nero)); distance sarebbe 
+        # la distanza minima per ignorare la prossima riga/colonna... nel senso se ho 1000 pixel e 6 colonne 
+        # faccio 1000/(6+4) = 100 quindi tutto quello che viene prima non viene considerato 
+        # come nuova riga /colonna, questo serve nel caso di linee più sesse come un pennarello
+        peaks, _ = find_peaks(p, prominence=p.max()*0.3, distance=DIM//(n+4)) 
+        
+        
+        if len(peaks) < n-1:  #qui se dal calcolo di prima non trovo abbastanza righe/colonne (cerca di dare senso a peaks) allora prova una divisione matematica
+            return [(int(i*DIM/n), int((i+1)*DIM/n)) for i in range(n)]
+
+        #i primi due Widht e Width_hight non mi interssano per sapere esattamente la posizione sulla griglia quindi le escludiamo. 
+        #Mi calcolo solo il punto esatto dove inizia il picco (L) e dove finisce (R)
+        _, _, L, R = peak_widths(p, peaks, rel_height=0.6) 
+        
+
+        #zip crea delle tuple (L,R) che vengono castate a integer poi la lista 
+        #finale viene ordinata per tutto ciò che incontro da sinistra verso destra
+        flat_lines = sorted([(int(l), int(r)) for l, r in zip(L, R)])
+        
+        walls = []
+        for line in flat_lines:      # Per ogni riga nera trovata (es. coppia 100, 110)
+            for x in line:           # Prendi sia l'inizio (100) che la fine (110)
+                walls.append(x)      # Mettili nella lista unica
+        
+        # Aggiungi i bordi dell'immagine (0 e 1000)
+        bounds = [0] + walls + [DIM]
+        
+        # bounds ora è tipo: [0, L0, R0, L1, R1, ..., DIM]
+        # Le celle sono gli intervalli pari: (0, L0), (R0, L1), (R1, L2)...
+        # andando a prendere a coppie dall'inizio riesco ad ottenere effettivamente le celle
+        # è un piccolo restringimento in modo da evitare di includere pezzi di linea
+
+        gaps = [(bounds[i]+4, bounds[i+1]-4) for i in range(0, len(bounds)-1, 2)] #lista di tuple
+        
+        # Filtra gap troppo piccoli (<20px) e tieni i 'n' più grandi ordinati spazialmente
+        valid_gaps = []
+        for gap in gaps:
+            width = gap[1] - gap[0]  # Calcola larghezza (Fine - Inizio)
+            if width > 20:           # Se è più largo di 20 pixel (non è un rumore)
+                valid_gaps.append(gap) #in questo modo faccio si che se ho dei punti sul foglio comunque non vengono considerati
+        return sorted(sorted(valid_gaps, key=lambda x: x[1]-x[0], reverse=True)[:n])
+
+    # Richiamo (fondamentale passare la proiezione corretta)
+    rows = get_intervals(warped.sum(axis=1), N_ROWS)
+    cols = get_intervals(warped.sum(axis=0), N_COLS)
+
+    # --- 3. Pulisci ogni cella ---
+    def clean_cell(cell):
+        cell[:4,:] = cell[-4:,:] = cell[:,:4] = cell[:,-4:] = 0 #creo un bordo nero per eliminare possibile rumore 
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(cell) #analizza immagine e raggruppa pixel bianchi che si trovano vicini tra loro
+        if n < 2: 
+            return np.zeros((28,28), np.uint8) #se l'isola è troppo piccola mettiamo direttamente lo sfondo nero
+        best_idx = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])   #con stats prendo le informazioni sulle "isole" (pixel) a partire dall'isola 1 
+                                                                #(0 sarebbe l'area più grande ovvero lo sfondo nero). cv2CC_STAT dice di considerare tutto
+                                                                #il blocco di pixel uniti (area) che verrà preso da argmax. Aggiungo 1 per la colonna 
+                                                                #aggiunta intorno. Returna l'indice dell'isola maggiore trovata
+
+        x, y, w, h, area = stats[best_idx]  #x,y coordinate ancgolo in alto a sinistra del rettangolo che contene l'oggetto
+                                            #w larghezza del rettangolo, h altezza del rettangolo
+        if area < 80: #se isola è troppo piccola allora è rumore, setto a nero
+            return np.zeros((28, 28), np.uint8)
+        rapporto = w / h
+        if rapporto > 5 or rapporto < 0.2: #se l'area è molto sproporzionata in lunghezza o larghezza setto a nero
+            return np.zeros((28, 28), np.uint8)
+        
+        H_cell, W_cell = cell.shape
+        is_vertical_line = w < 6 and (h > H_cell * 0.5) #se l'oggetto è molto fino ma anche lungo allora fa parte della griglia verticale
+        is_horizontal_line = h < 6 and (w > W_cell * 0.5) #se l'oggetto è molto fino ma anche largo allora fa parte della linea orizzonatale
+        if is_vertical_line or is_horizontal_line:
+            return np.zeros((28, 28), np.uint8)
+        digit = (labels[y:y+h, x:x+w] == best_idx).astype(np.uint8) * 255   #ritaglio dalla mapp solo il rettangolo in cui si trova la lettera (ottengo una nuova mappa con TRUE e FALSE)
+                                                                            #faccio casting a 0,1 e moltiplico per 255 per avere il bianco
+        
+        # Calcola quanto bordo nero aggiungere sopra/sotto e destra/sinistra
+        bordo = max(w, h) + 6 #il qudrato deve essere lungo almeno quanto il lato più lungo della lettera, 6 è quello che aggiungo per dare spazio
+        dy, dx = (bordo - h), (bordo - w)
+        
+        # Aggiungi i bordi: ((Top, Bottom), (Left, Right))
+        square = np.pad(digit, ((dy//2, dy - dy//2), (dx//2, dx - dx//2)))  # np.pad va a riempire sopra sotto, destra/sinistra di pixel neri fino a raggiungere lo spazio desiderato
+                                                                            # questo lo rappresento con una tupla di tuple ((sopra, sotto), (sinistra, destra))
+
+        return cv2.resize(square, (28, 28), interpolation=cv2.INTER_AREA) #interpolation è un metodo matematico per evitare di avere linee troppo pixelose quando vado a ridimensionare l'immagine
+
+    # --- 4. Estrai tutte le celle ---
+    cells = []
+    for i, r in enumerate(rows[:N_ROWS]):
+        for j, c in enumerate(cols[:N_COLS]):
+            cells.append((i, j, clean_cell(warped[r[0]:r[1], c[0]:c[1]])))  #dove i è il numero della riga, j della colonna r[0]:R[1] dimensione della cella rispetto alla riga relativamente la stessa cosa per c 
+    #print(cells[0])
+
+if __name__ == "__main__":
+
+    # --- 5. Visualizza griglia ---
+    fig1, axes = plt.subplots(N_ROWS, N_COLS, figsize=(8, 8))
+    for i, j, cell in cells:
+        axes[i, j].imshow(cell, cmap="gray")
+        axes[i, j].axis("off")
+    plt.tight_layout()
+
+    # --- 6. Visualizza cella singola con slider ---
+    fig2, ax2 = plt.subplots(figsize=(4, 4))
+    plt.subplots_adjust(bottom=0.2)
+    im = ax2.imshow(cells[0][2], cmap="gray")
+    ax2.axis("off")
+    title = ax2.set_title(f"Cella (0, 0) — 1/{len(cells)}")
+
+    slider_ax = fig2.add_axes([0.15, 0.06, 0.7, 0.04])
+    slider = Slider(slider_ax, "Cella", 0, len(cells)-1, valinit=0, valstep=1)
+
+    def update(val):
+        idx = int(slider.val)
+        i, j, cell = cells[idx]
+        im.set_data(cell)
+        ax2.set_title(f"Cella ({i}, {j}) — {idx+1}/{len(cells)}")
+        fig2.canvas.draw_idle()
+
+    slider.on_changed(update)
+
+    def on_key(event):
+        if event.key == "right" and slider.val < len(cells)-1:
+            slider.set_val(slider.val + 1)
+        elif event.key == "left" and slider.val > 0:
+            slider.set_val(slider.val - 1)
+
+    fig2.canvas.mpl_connect("key_press_event", on_key)
+
+    plt.show()

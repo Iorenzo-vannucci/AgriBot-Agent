@@ -5,6 +5,7 @@ sys.path.append(os.path.abspath("aima"))
 import numpy as np
 import time
 from search import Problem, astar_search, uniform_cost_search,Node
+from cropping import crop
 
 MAGENTA = '\033[95m'
 BLUE = '\033[94m'
@@ -191,32 +192,21 @@ class AgriBotProblem(Problem):
             most_close_plants=min(dry_dist)
             return max_internal_distance+most_close_plants
 
-        
-        
+
+model = tf.keras.models.load_model("agribot_model.keras")
+cell = crop("agribot_map_L1.png", 20, 20)
+for i in cell:
+    normalized_cell = i[2]//255
+    shape = normalized_cell.shape
+    normalized_cell = normalized_cell.reshape(1 ,28 , 28, 1)
+    prediction = model.predict(normalized_cell)
+    idx=np.argmax(prediction)
+    result=['D', 'F', 'R', 'S', 'T', '.'][idx]
+grid_map= []
+
+
 
 # Creazione del problema
-grid_map = [
-    ['S', '.', '.', '.', '.', 'R', '.', '.', '.', '.', '.', '.', '.', '.', '.', 'R', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', '.', 'R', '.', 'R', 'R', 'R', 'R', 'R', '.', 'R', '.', 'R', '.', 'R', 'R', '.'],
-    ['.', '.', '.', 'R', '.', '.', '.', '.', '.', '.', '.', 'R', '.', 'R', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', '.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', 'R', '.', 'R', 'R', 'R', 'R', 'R', '.', '.'],
-    ['.', 'R', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.'],
-    ['.', '.', '.', '.', '.', '.', '.', '.', 'D', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', 'R'],
-    ['.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.'],
-    ['.', '.', '.', '.', 'D', '.', '.', 'R', '.', 'R', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', 'R', 'R', '.', 'R', '.', 'R', '.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', '.'],
-    ['.', '.', '.', '.', '.', '.', '.', 'R', '.', '.', '.', 'R', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', 'R', '.', 'R', 'R', 'R', 'R', 'R', 'R', '.'],
-    ['.', 'T', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', 'D', '.', '.', '.'],
-    ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', 'R'],
-    ['.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', '.', '.'],
-    ['.', '.', '.', 'D', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.'],
-    ['.', 'R', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', '.', 'F']
-]
 
 def print_grid(problem, state, action=None):
     position, water, dry = state
@@ -303,6 +293,8 @@ def a_star1():
         print(f"Goal test effettuati: {problem_per_astar.goal_tests}")
         
         path = solution_node.path()
+        for n in path:
+    print_grid(problem, n.state, n.action)
         
         # mostra la grid
         #for n in path:
