@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 
 # --- CONFIGURAZIONE ---
 IMG_SIZE = 28
-# Mappatura EMNIST: 13=D, 15=F, 27=R, 28=S, 29=T
-TARGET_MAP = {13: 0, 15: 1, 27: 2, 28: 3, 29: 4} 
-CLASSES = ['D', 'F', 'R', 'S', 'T', '.'] 
+# Mappatura EMNIST: 13=D, 15=F, 27=R, 28=S, 29=T, 31=V
+TARGET_MAP = {13: 0, 15: 1, 27: 2, 28: 3, 29: 4, 31: 6} 
+CLASSES = ['D', 'F', 'R', 'S', 'T', '.', 'V'] 
 
 def load_data_tfds():
     print(" Scarico EMNIST Balanced via TensorFlow Datasets...")
@@ -39,10 +39,12 @@ def load_data_tfds():
     n_noise = len(X) // 5
     x_noise = []
     
-    for _ in range(n_noise):
+    # Metà col rumore, metà completamente nere (per robustezza sulle celle vuote)
+    for i in range(n_noise):
         img = np.zeros((28, 28), dtype=np.uint8)
-        noise = np.random.randint(0, 50, (28, 28), dtype=np.uint8)
-        img = cv2.add(img, noise)
+        if i % 2 == 0: # Solo metà hanno rumore
+            noise = np.random.randint(0, 50, (28, 28), dtype=np.uint8)
+            img = cv2.add(img, noise)
         x_noise.append(img)
     
     X = np.concatenate((X, np.array(x_noise)), axis=0)
@@ -50,7 +52,7 @@ def load_data_tfds():
     Y = np.concatenate((Y, Y_noise), axis=0)
 
     X = X.reshape(-1, IMG_SIZE, IMG_SIZE, 1).astype('float32') / 255.0
-    Y = to_categorical(Y, num_classes=6)
+    Y = to_categorical(Y, num_classes=7)
     
     print(f"Dataset caricato: {len(X)} immagini pronte.")
     return X, Y
@@ -72,7 +74,7 @@ def build_model():
         Flatten(),
         Dense(128, activation='relu'),
         Dropout(0.4),
-        Dense(6, activation='softmax')
+        Dense(7, activation='softmax')
     ])
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
@@ -116,13 +118,9 @@ def main():
     
     early_stop = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
     
-    print("🏋️  Inizio training...")
+    print("Inizio training...")
     # Salviamo la storia dell'allenamento nella variabile 'history'
-    history = model.fit(X_train, Y_train, 
-              validation_data=(X_val, Y_val),
-              epochs=30, 
-              batch_size=64, 
-              callbacks=[early_stop])
+    history = model.fit(X_train, Y_train, validation_data=(X_val, Y_val), epochs=30, batch_size=64, callbacks=[early_stop])
     
     model.save("agribot_model.keras")
     print(" Modello salvato: agribot_model.keras")

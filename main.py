@@ -4,6 +4,7 @@ import os
 sys.path.append(os.path.abspath("aima"))
 import numpy as np
 import time
+import tensorflow as tf
 from search import Problem, astar_search, uniform_cost_search,Node
 from cropping import crop
 
@@ -32,6 +33,7 @@ class AgriBotProblem(Problem):
         
         #weeds = set()
         dry = set()
+        very_dry = set()
         self.rocks = set() #per memorizzare la posizione delle rocce uso un set per evitare duplicati
         self.station = set() #per memorizzare la posizione della stazione uso un set per evitare duplicati
         #pests= set()
@@ -50,17 +52,20 @@ class AgriBotProblem(Problem):
                     #weeds.add(index)  
                 elif cell == "D":
                     dry.add(index)
+                elif cell == "V":
+                    very_dry.add(index)
+
                 #elif cell == "P":
                     #pests.add(index)
                 elif cell == "T":
                     self.station.add(index)
-        initial= (self.start_position,self.max_water,frozenset(dry))#ho usato i set, invece che usare una griglia intera quindi
+        initial= (self.start_position,self.max_water,frozenset(dry),frozenset(very_dry))#ho usato i set, invece che usare una griglia intera quindi
         #initial= (self.start_position,self.max_water,self.max_energy,frozenset(weeds),frozenset(dry),frozenset(pests),)#ho usato i set, invece che usare una griglia intera quindi
         #devo usare frozenset per rendere il set hasable sennò non poso usarlo su state di AIMA 
         super().__init__(initial=initial, goal=None)
 
     def actions(self, state):
-        position, water, dry = state
+        position, water, dry, very_dry = state
         #position, water, energy, weeds, dry, pests = state
         r= position // self.n #riga
         c= position % self.n #colonna
@@ -95,6 +100,11 @@ class AgriBotProblem(Problem):
             #possible_action.append("CUT")
         if position in dry and water>0:
             possible_action.append("WATER")
+        
+        # Per le piante V serve 2 di acqua. Se ho solo 1, devo prima ricaricare.
+        if position in very_dry and water>=2:
+            possible_action.append("WATER")
+
         #if position in pests and energy>=self.spray_cost:
             #possible_action.append("SPRAY")
 
@@ -104,7 +114,7 @@ class AgriBotProblem(Problem):
 
         
     def result(self, state, action):
-        position, water, dry = state
+        position, water, dry, very_dry = state
         #position, water, energy, weeds, dry, pests = state
         delta = {'UP': -self.n, 'DOWN': self.n, 'LEFT': -1, 'RIGHT': 1}
         #if action == "CUT": 
@@ -112,11 +122,15 @@ class AgriBotProblem(Problem):
         #    new_energy=energy-self.cut_cost
         #    return (position, water, new_energy, new_weeds, dry, pests)
        
-        if action == "WATER":
+        if action == "WATER" and position in dry:
             new_dry=dry.difference({position})
             new_water=water-1
             #new_energy=energy-self.water_cost
-            return (position, new_water, new_dry)
+            return (position, new_water, new_dry,very_dry)
+        if action == "WATER" and position in very_dry:
+            new_very_dry=very_dry.difference({position})
+            new_water=water-2
+            return (position, new_water, dry,new_very_dry)
        
         #if action == "SPRAY":
         #    new_pests=pests.difference({position})
@@ -125,16 +139,16 @@ class AgriBotProblem(Problem):
        
         if action == "REFILL": 
             #new_energy=energy-self.refill_cost
-            return (position, self.max_water, dry)
+            return (position, self.max_water, dry,very_dry)
 
         new_position= position + delta[action]
         #new_energy= energy - self.move_cost
-        return (new_position,water,dry)
+        return (new_position,water,dry,very_dry)
         
 
     def goal_test(self, state):
-        position, water, dry = state
-        if (len(dry)==0) and position == self.finish_position:
+        position, water, dry, very_dry = state
+        if (len(dry)==0) and (len(very_dry)==0) and position == self.finish_position:
             return True
         else:
             return False
@@ -151,16 +165,24 @@ class AgriBotProblem(Problem):
     def h_manhattan(self,node):
        
         
-        position, water, dry = node.state
+        position, water, dry, very_dry = node.state
+        
+        #unisco le piante D e V
+        all_plants = dry.union(very_dry)
+
         #se ho finito le dry 
-        if len(dry)==0:
+        if len(all_plants)==0:
             return self.cal_manhattan(position,self.finish_position)
-        if len(dry)>0 and water>0:
-            dry_dist=[]
-            for index in dry:
-                dry_dist.append(self.cal_manhattan(position,index))
-            return min(dry_dist)
-        if len(dry)>0 and water==0:
+        
+        # Caso: ho acqua a sufficienza (almeno 1)
+        # Considero tutte le piante come target validi per l'euristica
+        if water > 0:
+            plant_dists=[]
+            for index in all_plants:
+                plant_dists.append(self.cal_manhattan(position,index))
+            return min(plant_dists)
+        # Caso: sono a secco
+        if len(all_plants)>0 and water==0:
             station_dist=[]
             for index in self.station:
                 station_dist.append(self.cal_manhattan(position,index))
@@ -169,51 +191,77 @@ class AgriBotProblem(Problem):
 
 
     def h_max_pairwaise_Distance(self,node):
-        position, water, dry = node.state
-        if len(dry)==0:
+        position, water, dry, very_dry = node.state
+        
+        all_plants = dry.union(very_dry)
+        
+        if len(all_plants)==0:
             return self.cal_manhattan(position,self.finish_position)
+            
         max_internal_distance = 0
-        dry_list=list(dry) #ho convertito il set in una lista in modo tale da usare gli indici e calcolare ogni coppia una volta sola. 
-        for i in range(len(dry_list)):
-            for j in range(i + 1, len(dry_list)):
-                dist = self.cal_manhattan(dry_list[i], dry_list[j])
+        plants_list=list(all_plants) #ho convertito il set in una lista in modo tale da usare gli indici e calcolare ogni coppia una volta sola. 
+        for i in range(len(plants_list)):
+            for j in range(i + 1, len(plants_list)):
+                dist = self.cal_manhattan(plants_list[i], plants_list[j])
                 if dist > max_internal_distance:
                     max_internal_distance = dist
+                    
         if(water==0):
             station_dist=[]
             for index in self.station:
                 station_dist.append(self.cal_manhattan(position,index))
             return min(station_dist)+max_internal_distance
         
-        if len(dry)>0 and water>0:
-            dry_dist=[]
-            for index in dry:
-                dry_dist.append(self.cal_manhattan(position,index))
-            most_close_plants=min(dry_dist)
+        if water > 0:
+            plant_dists=[]
+            for index in all_plants:
+                plant_dists.append(self.cal_manhattan(position,index))
+            most_close_plants=min(plant_dists)
             return max_internal_distance+most_close_plants
 
 
+
+
 model = tf.keras.models.load_model("agribot_model.keras")
-cell = crop("agribot_map_L1.png", 20, 20)
-for i in cell:
-    normalized_cell = i[2]//255
-    shape = normalized_cell.shape
-    normalized_cell = normalized_cell.reshape(1 ,28 , 28, 1)
-    prediction = model.predict(normalized_cell)
-    idx=np.argmax(prediction)
-    result=['D', 'F', 'R', 'S', 'T', '.'][idx]
-grid_map= []
+
+# Parametri griglia
+N_ROWS = 6
+N_COLS = 6
+cells = crop("test3.png", N_ROWS, N_COLS)
+
+grid_map = []
+row = []
+
+# Classi possibili 
+LABELS = ['D', 'F', 'R', 'S', 'T', '.', 'V']
+
+for i, j, cell_img in cells:
+    # Preprocessing img
+    normalized_cell = cell_img.astype("float32") / 255.0
+    normalized_cell = normalized_cell.reshape(1, 28, 28, 1)
+    
+    # Predizione
+    prediction = model.predict(normalized_cell, verbose=0) # verbose=0 per pulire output
+    idx = np.argmax(prediction)
+    char = LABELS[idx]
+    
+    row.append(char)
+    
+    # Se abbiamo finito la riga corrente (colonna == ultima colonna)
+    if j == N_COLS - 1:
+        grid_map.append(row)
+        row = []
 
 
 
 # Creazione del problema
 
 def print_grid(problem, state, action=None):
-    position, water, dry = state
+    position, water, dry, very_dry = state
     n = problem.n
     
     print(f"\n--- Azione Eseguita: {action} ---")
-    print(f"Stato: Acqua [{water}/{problem.max_water}] | Piante residue: {len(dry)}")
+    print(f"Stato: Acqua [{water}/{problem.max_water}] | Piante residue: {len(dry)+len(very_dry) }")
 
     for r in range(n):
         row_str = ""
@@ -226,10 +274,12 @@ def print_grid(problem, state, action=None):
                 char = YELLOW + " B " +NORMAL # Robot
             elif idx in dry:
                 char = GREEN+ " D " +NORMAL      # Pianta Secca
+            elif idx in very_dry:
+                char = GREEN+ " V " +NORMAL      # Pianta Molto Secca
             elif idx in problem.rocks:
                 char = RED+ " R " +NORMAL     # Roccia
             elif idx in problem.station:
-                char = BLUE + " T " + NORMAL    # Stazione
+                char = BLUE + " T " +NORMAL    # Stazione
             elif idx == problem.finish_position:
                 char = " F "    # Fine
             elif idx == problem.start_position:
@@ -294,7 +344,7 @@ def a_star1():
         
         path = solution_node.path()
         for n in path:
-    print_grid(problem, n.state, n.action)
+            print_grid(problem, n.state, n.action)
         
         # mostra la grid
         #for n in path:

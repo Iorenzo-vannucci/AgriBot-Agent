@@ -44,53 +44,51 @@ def crop(filename, n_rows, n_cols):
 
     # 2. Trova intervalli celle 
     def get_intervals(proj, n):
-
-        p = gaussian_filter1d(proj, sigma=5) #in pratica si fa una lista filtrando con una normale i vari pixel, proj è la somma dei pixel; sigma è la precisione con cui vado a smussare le parti meno precise
-        #cerca i picchi (le parti più scure che siano almeno al 30% alte quanto il picco massimo (nero)); distance sarebbe 
-        # la distanza minima per ignorare la prossima riga/colonna... nel senso se ho 1000 pixel e 6 colonne 
-        # faccio 1000/(6+4) = 100 quindi tutto quello che viene prima non viene considerato 
-        # come nuova riga /colonna, questo serve nel caso di linee più sesse come un pennarello
-        peaks, _ = find_peaks(p, prominence=p.max()*0.3, distance=DIM//(n+4)) 
+        # Filtro più deciso per unificare le righe del pennarello
+        p = gaussian_filter1d(proj, sigma=2)
         
+        # Distanza minima forzata: le righe non possono essere più vicine di metà della cella ideale
+        expected_size = DIM / n
+        min_distance = int(expected_size * 0.5)
         
-        if len(peaks) < n-1:  #qui se dal calcolo di prima non trovo abbastanza righe/colonne (cerca di dare senso a peaks) allora prova una divisione matematica
+        # Cerca picchi. Prominence adattiva.
+        peaks, _ = find_peaks(p, prominence=p.max()*0.2, distance=min_distance) 
+        
+        # Se non trovo abbastanza righe, fallback matematico standard
+        if len(peaks) < n-1:
             return [(int(i*DIM/n), int((i+1)*DIM/n)) for i in range(n)]
 
-        #i primi due Widht e Width_hight non mi interssano per sapere esattamente la posizione sulla griglia quindi le escludiamo. 
-        #Mi calcolo solo il punto esatto dove inizia il picco (L) e dove finisce (R)
-        _, _, L, R = peak_widths(p, peaks, rel_height=0.6) 
-        
+        # COSTRUZIONE MURI
+        #diminusici questo valore in base allo spessore della linea #per immagine 
+        #img4 ho usato 32
+        #test3 ho usato 10
 
-        #zip crea delle tuple (L,R) che vengono castate a integer poi la lista 
-        #finale viene ordinata per tutto ciò che incontro da sinistra verso destra
-        flat_lines = sorted([(int(l), int(r)) for l, r in zip(L, R)])
-        
+        WALL_HALF_WIDTH = 10 
         walls = []
-        for line in flat_lines:      # Per ogni riga nera trovata (es. coppia 100, 110)
-            for x in line:           # Prendi sia l'inizio (100) che la fine (110)
-                walls.append(x)      # Mettili nella lista unica
+        for pk in peaks:
+            walls.append(max(0, int(pk - WALL_HALF_WIDTH))) # Inizio muro
+            walls.append(min(DIM, int(pk + WALL_HALF_WIDTH))) # Fine muro
         
-        # Aggiungi i bordi dell'immagine (0 e 1000)
         bounds = [0] + walls + [DIM]
+        gaps = [(bounds[i]+4, bounds[i+1]-4) for i in range(0, len(bounds)-1, 2)]
         
-        # bounds ora è tipo: [0, L0, R0, L1, R1, ..., DIM]
-        # Le celle sono gli intervalli pari: (0, L0), (R0, L1), (R1, L2)...
-        # andando a prendere a coppie dall'inizio riesco ad ottenere effettivamente le celle
-        # è un piccolo restringimento in modo da evitare di includere pezzi di linea
-
-        gaps = [(bounds[i]+4, bounds[i+1]-4) for i in range(0, len(bounds)-1, 2)] #lista di tuple
-        
-        # Filtra gap troppo piccoli (<20px) e tieni i 'n' più grandi ordinati spazialmente
         valid_gaps = []
         for gap in gaps:
-            width = gap[1] - gap[0]  # Calcola larghezza (Fine - Inizio)
-            if width > 20:           # Se è più largo di 20 pixel (non è un rumore)
-                valid_gaps.append(gap) #in questo modo faccio si che se ho dei punti sul foglio comunque non vengono considerati
-        return sorted(sorted(valid_gaps, key=lambda x: x[1]-x[0], reverse=True)[:n])
+            width = gap[1] - gap[0]
+            if width >10: # Scarta cose troppo piccole per essere celle
+                valid_gaps.append(gap)
+                
+        # SELEZIONE GAP MIGLIORE:
+        # Invece di prendere i più grandi (rischio di unire due celle),
+        # prendiamo quelli più vicini alla dimensione ideale (expected_size).
+        valid_gaps.sort(key=lambda x: abs((x[1]-x[0]) - expected_size))
+        
+        # Prendi i migliori 'n', poi riordinali per posizione (sinistra->destra)
+        return sorted(valid_gaps[:n], key=lambda x: x[0])
 
     # Richiamo (fondamentale passare la proiezione corretta)
-    rows = get_intervals(warped.sum(axis=1), N_ROWS)
-    cols = get_intervals(warped.sum(axis=0), N_COLS)
+    rows = get_intervals(warped.sum(axis=1), n_rows)
+    cols = get_intervals(warped.sum(axis=0), n_cols)
 
     # --- 3. Pulisci ogni cella ---
     def clean_cell(cell):
@@ -131,15 +129,16 @@ def crop(filename, n_rows, n_cols):
 
     # --- 4. Estrai tutte le celle ---
     cells = []
-    for i, r in enumerate(rows[:N_ROWS]):
-        for j, c in enumerate(cols[:N_COLS]):
+    for i, r in enumerate(rows[:n_rows]):
+        for j, c in enumerate(cols[:n_cols]):
             cells.append((i, j, clean_cell(warped[r[0]:r[1], c[0]:c[1]])))  #dove i è il numero della riga, j della colonna r[0]:R[1] dimensione della cella rispetto alla riga relativamente la stessa cosa per c 
     #print(cells[0])
+    return cells
 
 if __name__ == "__main__":
-
+    cells = crop("agribot_map_L1.png", 20, 20 )
     # --- 5. Visualizza griglia ---
-    fig1, axes = plt.subplots(N_ROWS, N_COLS, figsize=(8, 8))
+    fig1, axes = plt.subplots(20, 20 , figsize=(8, 8))
     for i, j, cell in cells:
         axes[i, j].imshow(cell, cmap="gray")
         axes[i, j].axis("off")
