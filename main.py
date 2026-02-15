@@ -6,11 +6,24 @@ import numpy as np
 import time
 import tensorflow as tf
 from search import Problem, astar_search, uniform_cost_search,Node
-from cropping import crop
+from grid_cell_extractor import crop
 from search import InstrumentedProblem
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
+
+model = tf.keras.models.load_model("agribot_model.keras")
+# Parametri griglia
+N_ROWS = 6
+N_COLS = 6
+cells = crop("test3.png", N_ROWS, N_COLS)
+
+grid_map = []
+row = []
+
+# Classi possibili 
+LABELS = ['D', 'F', 'R', 'S', 'T', '.', 'V']
+
 
 MAGENTA = '\033[95m'
 BLUE = '\033[94m'
@@ -165,7 +178,7 @@ class AgriBotProblem(Problem):
         A_r, A_c = self.rc(A)
         B_r,B_c= self.rc(B)
         return abs(A_r - B_r)+abs(A_c-B_c)
-#euristica 
+#euristiche
     def h_manhattan(self,node):
        
         
@@ -223,21 +236,6 @@ class AgriBotProblem(Problem):
             most_close_plants=min(plant_dists)
             return max_internal_distance+most_close_plants
 
-
-
-
-model = tf.keras.models.load_model("agribot_model.keras")
-
-# Parametri griglia
-N_ROWS = 4
-N_COLS = 4
-cells = crop("prova2.png", N_ROWS, N_COLS)
-
-grid_map = []
-row = []
-
-# Classi possibili 
-LABELS = ['D', 'F', 'R', 'S', 'T', '.', 'V']
 
 for i, j, cell_img in cells:
     # Preprocessing img
@@ -320,7 +318,7 @@ def visualizza_semplice(problem, solution_node, pausa=0.8):
     stato = {"step": 0, "playing": False}
 
     def disegna(step):
-        # Pulisco e ridisegno lo stato corrente.
+        # Pulisco e ridisegno 
         ax.clear()
         node = path[step]
         position, water, dry, very_dry = node.state
@@ -339,7 +337,14 @@ def visualizza_semplice(problem, solution_node, pausa=0.8):
             f"Step {step}/{len(path) - 1} - Azione: {action}\n"
             f"Acqua: {water}/{problem.max_water} | Piante rimaste: {len(dry) + len(very_dry)}"
         )
-
+        trail_x = []
+        trail_y = []
+        for past_step in range(step + 1):
+            past_pos = path[past_step].state[0]
+            pr, pc = past_pos // n, past_pos % n
+            trail_x.append(pc)
+            trail_y.append(pr)
+        ax.plot(trail_x, trail_y, color="limegreen", linewidth=2, alpha=0.6, zorder=1)
         for r in range(n):
             for c in range(n):
                 idx = r * n + c
@@ -428,6 +433,8 @@ def visualizza_semplice(problem, solution_node, pausa=0.8):
     disegna(0)
     plt.show()
 
+
+
 problem = AgriBotProblem(grid_map, max_water=2)
 def ucs(): 
     problem_per_ucs = InstrumentedProblem(problem) 
@@ -448,18 +455,13 @@ def a_star():
     problem_per_astar = InstrumentedProblem(problem)
     print("Avvio ricerca A* con euristica max_pairwaise_Distance...")
     solution_node = astar_search(problem_per_astar, h=problem.h_max_pairwaise_Distance)
-
+    
     if solution_node:
         print(f"Costo Totale: {solution_node.path_cost}")
         print(f"Numero passi: {len(solution_node.solution())}")
         print("Azioni:", solution_node.solution())
         print(f"Nodi esplorati da A*: {problem_per_astar.states}")
         print(f"Goal test effettuati: {problem_per_astar.goal_tests}")
-        
-
-        # Opzionale: visualizza gli stati per vedere se logica (es. refill) funziona
-        # for node in solution_node.path():
-        #      print(node.state)
     else:
         print("Nessuna soluzione trovata.")
 
@@ -478,27 +480,15 @@ def a_star1():
         path = solution_node.path()
         for n in path:
             print_grid(problem, n.state, n.action)
-        
         # mostra la grid
         #for n in path:
         #    print_grid(problem, n.state, n.action)
     else:
         print("Nessuna soluzione trovata.")
 
-
+print("\n\n")
 ucs()
 print("\n\n")
 a_star()
+print("\n\n")
 a_star1()
-
-
-#bisogna considerare 3 fattori 
-# A ho finito le piante e quindi l'obiettivo è raggiungere la fine
-# B ho ancora piante e ancora acqua qundi continuo ad innaffiare le piante
-# C ho ancora piante e ho terminato l'acqua, quindi devo riempire il serbatoio
-
-#def h(self, node):
-#    position, water, dry = node.state
-#    current_pos = node.state[0]
-#    current_water = node.state[1]
-#    dry_plants = node.state[2]

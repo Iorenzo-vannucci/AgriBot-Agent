@@ -1,4 +1,6 @@
+env/
 venv/
-__pycache__/
+env.zip
 *.pyc
 .DS_Store
+__pycache__/

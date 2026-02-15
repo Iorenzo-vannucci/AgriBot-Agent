@@ -93,7 +93,7 @@ def crop(filename, n_rows, n_cols):
 
     # --- 3. Pulisci ogni cella ---
     def clean_cell(cell):
-        cell[:1,:] = cell[-1:,:] = cell[:,:1] = cell[:,-1:] = 0 #creo un bordo nero per eliminare possibile rumore 
+        cell[:3,:] = cell[-3:,:] = cell[:,:3] = cell[:,-3:] = 0 #creo un bordo nero di 3px per eliminare residui delle linee della griglia
         n, labels, stats, _ = cv2.connectedComponentsWithStats(cell) #analizza immagine e raggruppa pixel bianchi che si trovano vicini tra loro
         if n < 2: 
             return np.zeros((28,28), np.uint8) #se l'isola è troppo piccola mettiamo direttamente lo sfondo nero
@@ -104,13 +104,19 @@ def crop(filename, n_rows, n_cols):
 
         x, y, w, h, area = stats[best_idx]  #x,y coordinate ancgolo in alto a sinistra del rettangolo che contene l'oggetto
                                             #w larghezza del rettangolo, h altezza del rettangolo
-        if area < 10: #se isola è troppo piccola allora è rumore, setto a nero
+        
+        # Filtro proporzionale: l'oggetto deve occupare almeno il 2% dell'area della cella.
+        # Una lettera reale occupa tipicamente il 5-20%, mentre un artefatto/residuo di
+        # linea occupa meno dell'1-2%. Questo filtro è robusto per qualsiasi dimensione di griglia.
+        H_cell, W_cell = cell.shape
+        cell_area = H_cell * W_cell
+        if area < cell_area * 0.02: #se l'oggetto occupa meno del 2% della cella, è rumore
             return np.zeros((28, 28), np.uint8)
+        
         rapporto = w / h
         if rapporto > 5 or rapporto < 0.2: #se l'area è molto sproporzionata in lunghezza o larghezza setto a nero
             return np.zeros((28, 28), np.uint8)
         
-        H_cell, W_cell = cell.shape
         is_vertical_line = w < 6 and (h > H_cell * 0.5) #se l'oggetto è molto fino ma anche lungo allora fa parte della griglia verticale
         is_horizontal_line = h < 6 and (w > W_cell * 0.5) #se l'oggetto è molto fino ma anche largo allora fa parte della linea orizzonatale
         if is_vertical_line or is_horizontal_line:
@@ -137,9 +143,11 @@ def crop(filename, n_rows, n_cols):
     return cells
 
 if __name__ == "__main__":
-    cells = crop("prova2.png", 4, 4 )
+    n_rows = 5
+    n_cols = 5
+    cells = crop("img4.png", n_rows, n_cols )
     # --- 5. Visualizza griglia ---
-    fig1, axes = plt.subplots(4, 4 , figsize=(8, 8))
+    fig1, axes = plt.subplots(n_rows, n_cols , figsize=(8, 8))
     for i, j, cell in cells:
         axes[i, j].imshow(cell, cmap="gray")
         axes[i, j].axis("off")
