@@ -45,7 +45,7 @@ def crop(filename, n_rows, n_cols):
     # 2. Trova intervalli celle 
     def get_intervals(proj, n):
         # Filtro più deciso per unificare le righe del pennarello
-        p = gaussian_filter1d(proj, sigma=2)
+        p = gaussian_filter1d(proj, sigma=5)
         
         # Distanza minima forzata: le righe non possono essere più vicine di metà della cella ideale
         expected_size = DIM / n
@@ -63,7 +63,8 @@ def crop(filename, n_rows, n_cols):
         #img4 ho usato 32
         #test3 ho usato 10
 
-        WALL_HALF_WIDTH = 10 
+        WALL_HALF_WIDTH = 10
+
         walls = []
         for pk in peaks:
             walls.append(max(0, int(pk - WALL_HALF_WIDTH))) # Inizio muro
@@ -92,7 +93,7 @@ def crop(filename, n_rows, n_cols):
 
     # --- 3. Pulisci ogni cella ---
     def clean_cell(cell):
-        cell[:4,:] = cell[-4:,:] = cell[:,:4] = cell[:,-4:] = 0 #creo un bordo nero per eliminare possibile rumore 
+        cell[:1,:] = cell[-1:,:] = cell[:,:1] = cell[:,-1:] = 0 #creo un bordo nero per eliminare possibile rumore 
         n, labels, stats, _ = cv2.connectedComponentsWithStats(cell) #analizza immagine e raggruppa pixel bianchi che si trovano vicini tra loro
         if n < 2: 
             return np.zeros((28,28), np.uint8) #se l'isola è troppo piccola mettiamo direttamente lo sfondo nero
@@ -103,7 +104,7 @@ def crop(filename, n_rows, n_cols):
 
         x, y, w, h, area = stats[best_idx]  #x,y coordinate ancgolo in alto a sinistra del rettangolo che contene l'oggetto
                                             #w larghezza del rettangolo, h altezza del rettangolo
-        if area < 80: #se isola è troppo piccola allora è rumore, setto a nero
+        if area < 10: #se isola è troppo piccola allora è rumore, setto a nero
             return np.zeros((28, 28), np.uint8)
         rapporto = w / h
         if rapporto > 5 or rapporto < 0.2: #se l'area è molto sproporzionata in lunghezza o larghezza setto a nero
@@ -136,9 +137,9 @@ def crop(filename, n_rows, n_cols):
     return cells
 
 if __name__ == "__main__":
-    cells = crop("agribot_map_L1.png", 20, 20 )
+    cells = crop("prova2.png", 4, 4 )
     # --- 5. Visualizza griglia ---
-    fig1, axes = plt.subplots(20, 20 , figsize=(8, 8))
+    fig1, axes = plt.subplots(4, 4 , figsize=(8, 8))
     for i, j, cell in cells:
         axes[i, j].imshow(cell, cmap="gray")
         axes[i, j].axis("off")

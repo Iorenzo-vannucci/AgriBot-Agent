@@ -7,6 +7,10 @@ import time
 import tensorflow as tf
 from search import Problem, astar_search, uniform_cost_search,Node
 from cropping import crop
+from search import InstrumentedProblem
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
 
 MAGENTA = '\033[95m'
 BLUE = '\033[94m'
@@ -225,9 +229,9 @@ class AgriBotProblem(Problem):
 model = tf.keras.models.load_model("agribot_model.keras")
 
 # Parametri griglia
-N_ROWS = 6
-N_COLS = 6
-cells = crop("test3.png", N_ROWS, N_COLS)
+N_ROWS = 4
+N_COLS = 4
+cells = crop("prova2.png", N_ROWS, N_COLS)
 
 grid_map = []
 row = []
@@ -293,7 +297,136 @@ def print_grid(problem, state, action=None):
     print("-" * (n * 3))
 
             
-from search import InstrumentedProblem
+
+
+def visualizza_semplice(problem, solution_node, pausa=0.8):
+    # Mi prendo tutti i passi della soluzione.
+    path = solution_node.path()
+    n = problem.n
+
+    # Uso pochi colori fissi per leggere la griglia velocemente.
+    colors = {
+        "R": "gray",
+        "T": "deepskyblue",
+        "F": "gold",
+        "D": "orange",
+        "V": "red",
+        "B": "limegreen",
+    }
+
+    # Creo la figura e lascio spazio in basso per i pulsanti.
+    fig, ax = plt.subplots(figsize=(8, 9))
+    plt.subplots_adjust(bottom=0.18)
+    stato = {"step": 0, "playing": False}
+
+    def disegna(step):
+        # Pulisco e ridisegno lo stato corrente.
+        ax.clear()
+        node = path[step]
+        position, water, dry, very_dry = node.state
+        action = node.action if node.action else "PARTENZA"
+
+        # Imposto assi e griglia in modo leggibile.
+        ax.set_xlim(-0.5, n - 0.5)
+        ax.set_ylim(n - 0.5, -0.5)
+        ax.set_xticks(range(n))
+        ax.set_yticks(range(n))
+        ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
+        ax.grid(which="minor", color="black", linewidth=1)
+        ax.tick_params(which="minor", bottom=False, left=False)
+        ax.set_title(
+            f"Step {step}/{len(path) - 1} - Azione: {action}\n"
+            f"Acqua: {water}/{problem.max_water} | Piante rimaste: {len(dry) + len(very_dry)}"
+        )
+
+        for r in range(n):
+            for c in range(n):
+                idx = r * n + c
+                x, y = c, r
+
+                # Disegno prima gli elementi statici.
+                if idx in problem.rocks:
+                    ax.add_patch(patches.Rectangle((x - 0.5, y - 0.5), 1, 1, color=colors["R"]))
+                    ax.text(x, y, "R", ha="center", va="center", color="white", fontweight="bold")
+                elif idx in problem.station:
+                    ax.add_patch(
+                        patches.Rectangle((x - 0.5, y - 0.5), 1, 1, color=colors["T"], alpha=0.25)
+                    )
+                    ax.text(x, y, "T", ha="center", va="center", color="blue", fontweight="bold")
+                elif idx == problem.finish_position:
+                    ax.add_patch(
+                        patches.Rectangle((x - 0.5, y - 0.5), 1, 1, fill=False, edgecolor=colors["F"], linewidth=3)
+                    )
+                    ax.text(x, y, "F", ha="center", va="center", color="black", fontweight="bold")
+
+                # Disegno le piante ancora da irrigare.
+                if idx in dry:
+                    ax.add_patch(patches.Circle((x, y), 0.28, color=colors["D"]))
+                    ax.text(x, y, "D", ha="center", va="center", color="white", fontsize=8)
+                elif idx in very_dry:
+                    ax.add_patch(patches.Circle((x, y), 0.28, color=colors["V"]))
+                    ax.text(x, y, "V", ha="center", va="center", color="white", fontsize=8)
+
+                # Disegno il bot per ultimo, così resta visibile.
+                if idx == position:
+                    ax.add_patch(
+                        patches.Rectangle((x - 0.35, y - 0.35), 0.7, 0.7, color=colors["B"], ec="black")
+                    )
+                    ax.text(x, y, "B", ha="center", va="center", color="black", fontweight="bold")
+        fig.canvas.draw_idle()
+
+    def avanti(_event=None):
+        # Avanzo di uno step manualmente.
+        if stato["step"] < len(path) - 1:
+            stato["step"] += 1
+            disegna(stato["step"])
+
+    def indietro(_event=None):
+        # Torno indietro di uno step manualmente.
+        if stato["step"] > 0:
+            stato["step"] -= 1
+            disegna(stato["step"])
+
+    def play(_event):
+        # Metto in play l'animazione.
+        stato["playing"] = True
+
+    def pausa_fn(_event):
+        # Metto in pausa l'animazione.
+        stato["playing"] = False
+
+    def tick():
+        # Se sono in play, avanzo automaticamente.
+        if stato["playing"]:
+            if stato["step"] < len(path) - 1:
+                stato["step"] += 1
+                disegna(stato["step"])
+            else:
+                stato["playing"] = False
+
+    # Creo i pulsanti sotto alla griglia.
+    ax_play = plt.axes([0.12, 0.05, 0.15, 0.07])
+    ax_pause = plt.axes([0.30, 0.05, 0.15, 0.07])
+    ax_prev = plt.axes([0.48, 0.05, 0.15, 0.07])
+    ax_next = plt.axes([0.66, 0.05, 0.15, 0.07])
+    btn_play = Button(ax_play, "Play")
+    btn_pause = Button(ax_pause, "Pausa")
+    btn_prev = Button(ax_prev, "Indietro")
+    btn_next = Button(ax_next, "Avanti")
+    btn_play.on_clicked(play)
+    btn_pause.on_clicked(pausa_fn)
+    btn_prev.on_clicked(indietro)
+    btn_next.on_clicked(avanti)
+
+    # Uso un timer per aggiornare l'animazione quando premo Play.
+    timer = fig.canvas.new_timer(interval=max(100, int(pausa * 1000)))
+    timer.add_callback(tick)
+    timer.start()
+
+    # Disegno il primo frame.
+    disegna(0)
+    plt.show()
 
 problem = AgriBotProblem(grid_map, max_water=2)
 def ucs(): 
@@ -341,7 +474,7 @@ def a_star1():
         print("Azioni:", solution_node.solution())
         print(f"Nodi esplorati da A*: {problem_per_astar.states}")
         print(f"Goal test effettuati: {problem_per_astar.goal_tests}")
-        
+        visualizza_semplice(problem, solution_node)
         path = solution_node.path()
         for n in path:
             print_grid(problem, n.state, n.action)
