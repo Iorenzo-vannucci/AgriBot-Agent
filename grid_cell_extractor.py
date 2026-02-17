@@ -151,7 +151,7 @@ def crop(filename, n_rows, n_cols):
 if __name__ == "__main__":
     n_rows = 4
     n_cols = 4
-    cells = crop("prova3.png", n_rows, n_cols )
+    cells = crop("test2.png", n_rows, n_cols )
     # --- 5. Visualizza griglia ---
     fig1, axes = plt.subplots(n_rows, n_cols, figsize=(8,8))
     for i, j, cell in cells:
