@@ -10,21 +10,20 @@ from sklearn.model_selection import train_test_split
 import cv2
 import matplotlib.pyplot as plt 
 
-
 IMG_SIZE = 28
 # Mappatura EMNIST: 13=D, 15=F, 27=R, 28=S, 29=T, 31=V
 TARGET_MAP = {13: 0, 15: 1, 27: 2, 28: 3, 29: 4, 31: 6} 
 CLASSES = ['D', 'F', 'R', 'S', 'T', '.', 'V'] 
 
 def load_data_tfds():
-    print(" Scarico EMNIST Balanced via TensorFlow Datasets")
-    ds = tfds.load('emnist/balanced', split='train', as_supervised=True, shuffle_files=True) #stesso numero di esempi per lettera
+    print(" Scarico EMNIST con TensorFlow Datasets")
+    dataset = tfds.load('emnist/balanced', split='train', as_supervised=True, shuffle_files=True) #stesso numero di esempi per lettera
     
     x_data = []
     y_data = []
 
     print("Filtro ed estraggo i dati...")
-    for image, label in tfds.as_numpy(ds):
+    for image, label in tfds.as_numpy(dataset):
         lbl = int(label)
         if lbl in TARGET_MAP:
             img = image.reshape(28, 28)
@@ -35,7 +34,7 @@ def load_data_tfds():
     X = np.array(x_data)
     Y = np.array(y_data)
 
-    print("Background: Genero celle vuote (rumore)...")
+    print("Generando celle vuote (rumore)...")
     n_noise = len(X) // 5
     x_noise = []
     
@@ -52,7 +51,7 @@ def load_data_tfds():
     Y = np.concatenate((Y, Y_noise), axis=0)
 
     X = X.reshape(-1, IMG_SIZE, IMG_SIZE, 1).astype('float32') / 255.0
-    Y = to_categorical(Y, num_classes=7) #trasforma le etichette in one-hot encoding [0, 0, 0, 1, 0, 0, 0] pet S
+    Y = to_categorical(Y, num_classes=7) #trasforma le etichette in valori numerici [0, 0, 0, 1, 0, 0, 0] pet S
     
     print(f"Dataset caricato: {len(X)} immagini pronte.")
     return X, Y

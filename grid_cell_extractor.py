@@ -49,7 +49,7 @@ def crop(filename, n_rows, n_cols):
         """
 
         expected_size = DIM / n 
-        MARGIN = 2  # pixel di margine per evitare residui della griglia
+        MARGIN = 2# pixel di margine per evitare residui della griglia
 
         #usiamo un kernel per morfologia matematica (tecnica basata sulla geometria, forma, dimesione e relazioni spaziali tra oggetti)
         kernel_len = max(int(expected_size * 0.3), 40) #calcolo la lunghezza della maschera (o kernel)
@@ -109,6 +109,7 @@ def crop(filename, n_rows, n_cols):
         n, labels, stats, _ = cv2.connectedComponentsWithStats(cell) #analizza immagine e raggruppa pixel bianchi che si trovano vicini tra loro
         if n < 2: 
             return np.zeros((28,28), np.uint8) #se l'isola è troppo piccola mettiamo direttamente lo sfondo nero
+
         best_idx = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])   #con stats prendo le informazioni sulle "isole" (pixel) a partire dall'isola 1 
                                                                 #(0 sarebbe l'area più grande ovvero lo sfondo nero). cv2CC_STAT dice di considerare tutto
                                                                 #il blocco di pixel uniti (area) che verrà preso da argmax. Aggiungo 1 per la colonna 
@@ -133,9 +134,9 @@ def crop(filename, n_rows, n_cols):
         # Calcola quanto bordo nero aggiungere sopra/sotto e destra/sinistra
         bordo = max(w, h) + 6 #il qudrato deve essere lungo almeno quanto il lato più lungo della lettera, 6 è quello che aggiungo per dare spazio
         dy, dx = (bordo - h), (bordo - w)
-        
+        pad=0
         # Aggiungi i bordi: ((Top, Bottom), (Left, Right))
-        square = np.pad(digit, ((dy//2, dy - dy//2), (dx//2, dx - dx//2)))  # np.pad va a riempire sopra sotto, destra/sinistra di pixel neri fino a raggiungere lo spazio desiderato
+        square = np.pad(digit, ((dy//2+pad, dy - dy//2+pad), (dx//2+pad, dx - dx//2+pad)))  # np.pad va a riempire sopra sotto, destra/sinistra di pixel neri fino a raggiungere lo spazio desiderato
                                                                             # questo lo rappresento con una tupla di tuple ((sopra, sotto), (sinistra, destra))
 
         return cv2.resize(square, (28, 28), interpolation=cv2.INTER_AREA) #interpolation è un metodo matematico per evitare di avere linee troppo pixelose quando vado a ridimensionare l'immagine
@@ -149,9 +150,9 @@ def crop(filename, n_rows, n_cols):
     return cells
 
 if __name__ == "__main__":
-    n_rows = 4
-    n_cols = 4
-    cells = crop("test2.png", n_rows, n_cols )
+    n_rows = 5
+    n_cols = 5
+    cells = crop("prova5.png", n_rows, n_cols )
     # --- 5. Visualizza griglia ---
     fig1, axes = plt.subplots(n_rows, n_cols, figsize=(8,8))
     for i, j, cell in cells:
@@ -161,7 +162,7 @@ if __name__ == "__main__":
 
     # --- 6. Visualizza cella singola con slider ---
     fig2, ax2 = plt.subplots(figsize=(5, 5))
-    plt.subplots_adjust(bottom=0.2)
+    plt.subplots_adjust(bottom=0.2) #spazio in basso per slider
     im = ax2.imshow(cells[0][2], cmap="gray")
     ax2.axis("off")
     title = ax2.set_title(f"Cella (0, 0) — 1/{len(cells)}")

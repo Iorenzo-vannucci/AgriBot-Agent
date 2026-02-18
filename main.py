@@ -448,6 +448,7 @@ def ucs():
         print(f"Costo: {solution_node.path_cost}")
         print(f"passi: ({len(solution_node.solution())}):")
         print(solution_node.solution())
+        visualizza_semplice(problem, solution_node)
     else:
         print("Nessuna soluzione trovata.")
 
@@ -462,6 +463,8 @@ def a_star():
         print("Azioni:", solution_node.solution())
         print(f"Nodi esplorati da A*: {problem_per_astar.states}")
         print(f"Goal test effettuati: {problem_per_astar.goal_tests}")
+        visualizza_semplice(problem, solution_node)
+        
     else:
         print("Nessuna soluzione trovata.")
 
